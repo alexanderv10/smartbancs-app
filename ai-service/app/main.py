@@ -10,6 +10,7 @@ app = FastAPI(title="SmartBancs AI Recommendation Mock", version="0.1.0")
 
 
 class RecommendationRequest(BaseModel):
+    # Este contrato simula los datos minimos que un modelo real recibiria para recomendar.
     transaction_id: str
     trace_id: str
     from_account_id: int

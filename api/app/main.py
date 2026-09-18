@@ -28,6 +28,7 @@ app = FastAPI(title="SmartBancs Transaction API", version="0.1.0")
 
 
 class TransactionRequest(BaseModel):
+    # Pydantic valida la entrada antes de tocar la base: IDs positivos y monto mayor que cero.
     from_account_id: int = Field(gt=0)
     to_account_id: int = Field(gt=0)
     amount: Decimal = Field(gt=Decimal("0"))
@@ -48,6 +49,7 @@ def log_event(event: str, **fields: Any) -> None:
 
 @contextmanager
 def db_connection():
+    # Centraliza la conexion para que todos los endpoints usen la misma configuracion.
     with psycopg.connect(DATABASE_URL) as conn:
         yield conn
 
@@ -65,6 +67,7 @@ def metrics() -> Response:
 
 @app.get("/accounts/{account_id}")
 def get_account(account_id: int) -> dict[str, Any]:
+    # Endpoint de consulta usado en la demo para comprobar saldos antes/despues.
     with db_connection() as conn:
         row = conn.execute(
             "SELECT id, account_number, owner_name, balance, status FROM accounts WHERE id = %s",
@@ -83,6 +86,7 @@ def get_account(account_id: int) -> dict[str, Any]:
 
 @app.get("/transactions/{transaction_id}")
 def get_transaction(transaction_id: UUID) -> dict[str, Any]:
+    # Permite consultar el comprobante tecnico de una transferencia especifica.
     with db_connection() as conn:
         row = conn.execute(
             """
@@ -219,6 +223,7 @@ def create_transaction(request: TransactionRequest) -> TransactionResponse:
                     raise HTTPException(status_code=404, detail="One or both accounts do not exist")
 
                 if accounts[request.from_account_id]["status"] != "ACTIVE" or accounts[request.to_account_id]["status"] != "ACTIVE":
+                    # Rechazos de negocio quedan auditados en transactions, pero no generan outbox.
                     transaction_id = insert_rejected_transaction(conn, request, trace_id, "Inactive account")
                     TRANSACTIONS_TOTAL.labels(status="REJECTED").inc()
                     return TransactionResponse(
@@ -229,6 +234,7 @@ def create_transaction(request: TransactionRequest) -> TransactionResponse:
                     )
 
                 if accounts[request.from_account_id]["balance"] < request.amount:
+                    # Fondos insuficientes no mueve saldo y tampoco dispara IA/Bancs.
                     transaction_id = insert_rejected_transaction(conn, request, trace_id, "Insufficient funds")
                     TRANSACTIONS_TOTAL.labels(status="REJECTED").inc()
                     return TransactionResponse(
@@ -246,6 +252,7 @@ def create_transaction(request: TransactionRequest) -> TransactionResponse:
                     "UPDATE accounts SET balance = balance + %s WHERE id = %s",
                     (request.amount, request.to_account_id),
                 )
+                # La transferencia aprobada y el evento outbox se guardan en la misma transaccion DB.
                 transaction_id = conn.execute(
                     """
                     INSERT INTO transactions (from_account_id, to_account_id, amount, status, trace_id)
@@ -281,12 +288,14 @@ def create_transaction(request: TransactionRequest) -> TransactionResponse:
             message="Transaction approved",
         )
     except psycopg.Error as exc:
+        # Si PostgreSQL falla, lo registramos como metrica y log para diagnostico operativo.
         DATABASE_ERRORS_TOTAL.inc()
         log_event("database_error", trace_id=trace_id, error=str(exc))
         raise HTTPException(status_code=503, detail="Database error while processing transaction") from exc
 
 
 def insert_rejected_transaction(conn: psycopg.Connection, request: TransactionRequest, trace_id: UUID, reason: str) -> UUID:
+    # Audita rechazos de negocio sin ejecutar tareas secundarias.
     transaction_id = conn.execute(
         """
         INSERT INTO transactions (from_account_id, to_account_id, amount, status, failure_reason, trace_id)

@@ -36,6 +36,7 @@ def normalize_date(value: str) -> str:
 
 
 def transform() -> None:
+    # El reto pide demostrar transformacion: entrada cruda -> salida lista para analisis/IA.
     with RAW_FILE.open(newline="", encoding="utf-8") as raw, CLEAN_FILE.open("w", newline="", encoding="utf-8") as clean:
         reader = csv.DictReader(raw)
         fieldnames = ["transaction_id", "account_id", "amount", "currency", "date"]

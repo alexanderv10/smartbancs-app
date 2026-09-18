@@ -113,6 +113,7 @@ def get_account_balance(account_id: int) -> Decimal:
 
 
 def test_approved_transaction_moves_money_and_creates_outbox_event(client):
+    # Caso feliz: mueve saldos y deja la tarea asincrona pendiente para el worker.
     response = client.post(
         "/transactions",
         json={"from_account_id": 1, "to_account_id": 2, "amount": "100.00"},
@@ -138,6 +139,7 @@ def test_approved_transaction_moves_money_and_creates_outbox_event(client):
 
 
 def test_insufficient_funds_rejects_transaction_without_outbox_event(client):
+    # Caso de negocio: se audita el rechazo, pero no se dispara IA ni Bancs.
     response = client.post(
         "/transactions",
         json={"from_account_id": 3, "to_account_id": 2, "amount": "500.00"},

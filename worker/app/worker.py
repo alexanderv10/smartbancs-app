@@ -52,6 +52,7 @@ def process_next_event() -> bool:
                 return False
 
             event_id, transaction_id, event_type, payload, attempts = event
+            # Marcamos PROCESSING antes de llamar servicios externos para evitar duplicados inmediatos.
             conn.execute(
                 "UPDATE outbox_events SET status = 'PROCESSING', attempts = attempts + 1 WHERE id = %s",
                 (event_id,),
@@ -83,6 +84,7 @@ def process_next_event() -> bool:
         log_event("outbox_event_processed", event_id=event_id, transaction_id=transaction_id)
     except Exception as exc:
         with psycopg.connect(DATABASE_URL) as conn:
+            # El evento queda FAILED con last_error para reintentos y diagnostico.
             conn.execute(
                 "UPDATE outbox_events SET status = 'FAILED', last_error = %s WHERE id = %s",
                 (str(exc), event_id),

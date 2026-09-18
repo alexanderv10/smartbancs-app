@@ -11,6 +11,7 @@ app = FastAPI(title="Bancs Legacy Core Mock", version="0.1.0")
 
 
 class BancsSyncRequest(BaseModel):
+    # Contrato minimo para simular la notificacion al core bancario legado.
     transaction_id: str
     trace_id: str
     from_account_id: int
