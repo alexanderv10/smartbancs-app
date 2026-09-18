@@ -1,11 +1,11 @@
 # SmartBancs App
 
-MVP para el reto tecnico NextGen Engineers. La solucion procesa transferencias financieras, protege el core legado Bancs con procesamiento asincrono, genera recomendaciones mediante un servicio de IA mock y expone logs y metricas basicas para observabilidad.
+MVP para el reto tecnico NextGen Engineers. La solucion procesa transferencias financieras, protege el core legado Bancs mediante procesamiento asincrono, genera recomendaciones con un servicio de IA mock y expone logs y metricas basicas para observabilidad.
 
 ## Arquitectura
 
 ```text
-Cliente / Postman
+Cliente / Swagger / Postman
         |
         v
 API de Transacciones ---- PostgreSQL
@@ -17,33 +17,113 @@ Tabla outbox_events
 Worker asincrono ---- IA Mock
         |
         v
-       Bancs Mock
+     Bancs Mock
 ```
+
+## Componentes
+
+- `api`: servicio principal. Recibe transferencias, valida saldo, actualiza cuentas y crea eventos outbox.
+- `postgres`: base de datos PostgreSQL. Guarda cuentas, transacciones, eventos, recomendaciones y sincronizaciones.
+- `worker`: proceso en segundo plano. Lee eventos outbox, llama IA mock y sincroniza con Bancs mock.
+- `ai-service`: servicio mock que genera recomendaciones financieras.
+- `bancs-mock`: simulacion del core legado Bancs.
+- `etl`: script para limpiar datos transaccionales crudos.
 
 ## Requisitos
 
-- Docker
+- Docker Desktop
 - Docker Compose
+- Python 3.12 o superior, solo para ejecutar el ETL localmente
 
-## Ejecutar
+## Ejecutar La Solucion
+
+Desde la carpeta del proyecto:
 
 ```bash
 docker compose up --build
 ```
 
-Servicios:
-
-- API: http://localhost:8000
-- IA mock: http://localhost:8001
-- Bancs mock: http://localhost:8002
-- PostgreSQL: localhost:5432
-
-## Probar una transferencia
+Para ejecutarlo en segundo plano:
 
 ```bash
-curl -X POST http://localhost:8000/transactions ^
-  -H "Content-Type: application/json" ^
-  -d "{\"from_account_id\":1,\"to_account_id\":2,\"amount\":100}"
+docker compose up --build -d
+```
+
+Ver servicios activos:
+
+```bash
+docker compose ps
+```
+
+Servicios disponibles:
+
+- API principal: http://localhost:8000
+- Swagger API principal: http://localhost:8000/docs
+- IA mock: http://localhost:8001/docs
+- Bancs mock: http://localhost:8002/docs
+- PostgreSQL: localhost:5432
+
+## Probar Desde Swagger
+
+Abrir:
+
+```text
+http://localhost:8000/docs
+```
+
+### 1. Verificar Salud
+
+Ejecutar:
+
+```text
+GET /health
+```
+
+Respuesta esperada:
+
+```json
+{
+  "status": "ok",
+  "service": "smartbancs-api"
+}
+```
+
+### 2. Consultar Cuentas
+
+Ejecutar:
+
+```text
+GET /accounts/1
+GET /accounts/2
+GET /accounts/3
+```
+
+Las cuentas iniciales son:
+
+```text
+Cuenta 1: 1000.00
+Cuenta 2: 500.00
+Cuenta 3: 100.00
+```
+
+Si ya se hicieron pruebas, los saldos pueden ser distintos.
+
+### 3. Crear Transferencia Aprobada
+
+Ejecutar:
+
+```text
+POST /transactions
+```
+
+Body:
+
+```json
+{
+  "from_account_id": 1,
+  "to_account_id": 2,
+  "amount": 50
+}
 ```
 
 Respuesta esperada:
@@ -57,46 +137,281 @@ Respuesta esperada:
 }
 ```
 
-Consultar cuenta:
+Luego consultar nuevamente:
 
-```bash
-curl http://localhost:8000/accounts/1
+```text
+GET /accounts/1
+GET /accounts/2
 ```
 
-Consultar procesamiento asincrono de una transaccion:
+La cuenta origen debe disminuir y la cuenta destino debe aumentar.
 
-```bash
-curl http://localhost:8000/transactions/{transaction_id}/processing-status
+### 4. Ver Procesamiento Asincrono
+
+Con el `transaction_id` de una transferencia aprobada, ejecutar:
+
+```text
+GET /transactions/{transaction_id}/processing-status
 ```
 
-Metricas:
+Respuesta esperada:
 
-```bash
-curl http://localhost:8000/metrics
+```json
+{
+  "transaction": {
+    "status": "APPROVED"
+  },
+  "outbox": {
+    "status": "PROCESSED",
+    "attempts": 1
+  },
+  "recommendation": {
+    "message": "..."
+  },
+  "bancs_sync": {
+    "status": "SYNCED"
+  }
+}
 ```
 
-## Ejecutar ETL
+Esto demuestra que la transferencia se proceso rapido y que el worker ejecuto tareas secundarias en segundo plano.
 
-```bash
-python etl/transform_transactions.py
+### 5. Crear Transferencia Rechazada
+
+Ejemplo:
+
+```json
+{
+  "from_account_id": 3,
+  "to_account_id": 2,
+  "amount": 100
+}
 ```
 
-Entrada:
+Si la cuenta 3 no tiene saldo suficiente, la respuesta sera:
 
-- `etl/data/raw_transactions.csv`
+```json
+{
+  "status": "REJECTED",
+  "message": "Insufficient funds"
+}
+```
 
-Salida:
+Para una transferencia rechazada, el `processing-status` debe mostrar:
 
-- `etl/data/clean_transactions.csv`
+```json
+{
+  "outbox": null,
+  "recommendation": null,
+  "bancs_sync": null
+}
+```
 
-## Detener
+Esto ocurre porque solo las transferencias aprobadas generan tareas asincronas.
+
+## Conceptos Clave
+
+### Outbox
+
+`outbox_events` es una tabla de tareas pendientes. Cuando una transferencia se aprueba, la API guarda un evento. El worker lee ese evento y ejecuta tareas secundarias.
+
+```text
+Transferencia aprobada
+        |
+        v
+Evento en outbox_events
+        |
+        v
+Worker procesa IA y Bancs
+```
+
+### Worker
+
+El worker es el encargado de las tareas en segundo plano. En este MVP:
+
+- llama al servicio de IA mock para generar una recomendacion;
+- sincroniza la transferencia aprobada con Bancs mock;
+- marca el evento outbox como `PROCESSED`.
+
+### Bancs Mock
+
+Bancs mock simula el core bancario legado del reto. En este MVP, PostgreSQL es la base operativa de SmartBancs, mientras Bancs mock representa el sistema externo al que se notifica una transferencia aprobada.
+
+La API no llama a Bancs durante la respuesta al usuario. Primero procesa la transferencia y responde rapido; luego el worker sincroniza con Bancs mock de forma asincrona para no saturar el sistema legado.
+
+## Observabilidad
+
+### Logs
+
+Ver logs de la API:
+
+```bash
+docker compose logs --tail=30 api
+```
+
+Eventos importantes:
+
+- `transaction_received`
+- `transaction_approved`
+- `transaction_rejected`
+
+Ver logs del worker:
+
+```bash
+docker compose logs --tail=30 worker
+```
+
+Eventos importantes:
+
+- `outbox_event_processing`
+- `ai_service_called`
+- `bancs_sync_completed`
+- `outbox_event_processed`
+
+Los logs incluyen `transaction_id` y `trace_id` para rastrear una operacion entre componentes.
+
+### Metricas
+
+Abrir:
+
+```text
+http://localhost:8000/metrics
+```
+
+Metricas relevantes:
+
+- `transactions_total{status="APPROVED"}`
+- `transactions_total{status="REJECTED"}`
+- `database_errors_total`
+- `transaction_duration_seconds`
+
+Estas metricas permiten observar volumen transaccional, errores y tiempos de respuesta.
+
+## Base De Datos
+
+Entrar a PostgreSQL:
+
+```bash
+docker compose exec postgres psql -U smartbancs -d smartbancs
+```
+
+Listar tablas:
+
+```sql
+\dt
+```
+
+Ver cuentas:
+
+```sql
+SELECT * FROM accounts;
+```
+
+Ver ultimas transacciones:
+
+```sql
+SELECT id, from_account_id, to_account_id, amount, status, failure_reason
+FROM transactions
+ORDER BY created_at DESC
+LIMIT 5;
+```
+
+Ver eventos outbox:
+
+```sql
+SELECT transaction_id, event_type, status, attempts, last_error
+FROM outbox_events
+ORDER BY created_at DESC
+LIMIT 5;
+```
+
+Ver recomendaciones:
+
+```sql
+SELECT transaction_id, recommendation, created_at
+FROM recommendations
+ORDER BY created_at DESC
+LIMIT 5;
+```
+
+Ver sincronizaciones con Bancs mock:
+
+```sql
+SELECT transaction_id, status, detail, created_at
+FROM bancs_sync_log
+ORDER BY created_at DESC
+LIMIT 5;
+```
+
+Salir de PostgreSQL:
+
+```sql
+\q
+```
+
+## Concurrencia
+
+La API usa transacciones de PostgreSQL y bloqueo de filas con `FOR UPDATE` para evitar race conditions.
+
+La idea es:
+
+```text
+1. Ordenar cuentas involucradas por ID.
+2. Bloquearlas en PostgreSQL.
+3. Validar saldo.
+4. Actualizar saldos.
+5. Guardar transaccion.
+6. Liberar bloqueo al confirmar la transaccion.
+```
+
+El orden fijo reduce riesgo de deadlocks y `FOR UPDATE` evita que dos transferencias modifiquen el mismo saldo al mismo tiempo.
+
+## ETL
+
+Ver datos crudos:
+
+```bash
+type etl\data\raw_transactions.csv
+```
+
+Ejecutar transformacion:
+
+```bash
+python etl\transform_transactions.py
+```
+
+Ver datos limpios:
+
+```bash
+type etl\data\clean_transactions.csv
+```
+
+El ETL normaliza:
+
+- montos con simbolos, espacios o comas;
+- monedas en minuscula;
+- fechas en distintos formatos;
+- valores nulos.
+
+## Detener Servicios
+
+Detener contenedores:
 
 ```bash
 docker compose down
 ```
 
-## Documentacion
+Detener y borrar datos de PostgreSQL:
+
+```bash
+docker compose down -v
+```
+
+Usar `-v` solo si se quiere reiniciar la base desde cero.
+
+## Documentacion Adicional
 
 - `docs/architecture.md`: diseno de arquitectura y decisiones tecnicas.
 - `docs/incident-response.md`: respuesta al incidente simulado.
 - `docs/ai-usage.md`: declaracion de uso de inteligencia artificial.
+- `docs/presentation.md`: guion breve para defensa tecnica.
