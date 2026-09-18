@@ -23,6 +23,7 @@ def log_event(event: str, **fields: Any) -> None:
 
 def main() -> None:
     log_event("worker_started")
+    # Loop simple de polling: suficiente para el MVP; en produccion podria reemplazarse por una cola.
     while True:
         try:
             processed = process_next_event()
@@ -43,6 +44,7 @@ def process_next_event() -> bool:
                 WHERE status IN ('PENDING', 'FAILED') AND attempts < 5
                 ORDER BY created_at
                 LIMIT 1
+                -- SKIP LOCKED permite que varios workers trabajen sin tomar el mismo evento.
                 FOR UPDATE SKIP LOCKED
                 """
             ).fetchone()
@@ -57,6 +59,7 @@ def process_next_event() -> bool:
 
     log_event("outbox_event_processing", event_id=event_id, transaction_id=transaction_id, event_type=event_type)
     try:
+        # Estas tareas son secundarias: no deben retrasar la respuesta de POST /transactions.
         recommendation = call_ai_service(payload)
         call_bancs_mock(payload)
         with psycopg.connect(DATABASE_URL) as conn:
@@ -90,6 +93,7 @@ def process_next_event() -> bool:
 
 
 def call_ai_service(payload: dict[str, Any]) -> str:
+    # Servicio separado para demostrar que la IA no bloquea el flujo transaccional principal.
     response = requests.post(f"{AI_SERVICE_URL}/recommendations", json=payload, timeout=3)
     response.raise_for_status()
     data = response.json()
@@ -98,6 +102,7 @@ def call_ai_service(payload: dict[str, Any]) -> str:
 
 
 def call_bancs_mock(payload: dict[str, Any]) -> None:
+    # Bancs mock simula notificar al core legado sin saturarlo desde la API principal.
     response = requests.post(f"{BANCS_SERVICE_URL}/bancs/sync", json=payload, timeout=3)
     response.raise_for_status()
     log_event("bancs_sync_completed", trace_id=payload.get("trace_id"), transaction_id=payload.get("transaction_id"))

@@ -25,6 +25,7 @@ def health() -> dict[str, str]:
 
 @app.post("/bancs/sync")
 def sync_transaction(request: BancsSyncRequest) -> dict[str, str]:
+    # Latencia artificial: recuerda que un sistema legado puede responder mas lento.
     time.sleep(0.25)
     return {
         "transaction_id": request.transaction_id,

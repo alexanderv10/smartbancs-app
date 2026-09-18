@@ -24,6 +24,7 @@ def health() -> dict[str, str]:
 
 @app.post("/recommendations")
 def create_recommendation(request: RecommendationRequest) -> dict[str, str]:
+    # Mock deterministico: no entrena un modelo, solo demuestra el contrato de integracion de IA.
     if request.amount >= Decimal("500"):
         recommendation = "High-value transfer detected. Review monthly budget impact and keep emergency savings available."
     elif request.amount >= Decimal("100"):

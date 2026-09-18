@@ -10,6 +10,7 @@ CLEAN_FILE = BASE_DIR / "data" / "clean_transactions.csv"
 
 
 def normalize_amount(value: str | None) -> str:
+    # Convierte montos sucios como "$100.50" o "1,200.75" a un decimal estandar.
     if value is None or value.strip() == "":
         return "0.00"
     cleaned = value.strip().replace("$", "").replace(",", "")
@@ -24,6 +25,7 @@ def normalize_currency(value: str | None) -> str:
 
 
 def normalize_date(value: str) -> str:
+    # Acepta varios formatos de entrada y entrega ISO-8601: YYYY-MM-DD.
     candidates = ["%Y-%m-%d", "%d/%m/%Y", "%m-%d-%Y"]
     for fmt in candidates:
         try:

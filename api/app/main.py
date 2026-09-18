@@ -41,6 +41,7 @@ class TransactionResponse(BaseModel):
 
 
 def log_event(event: str, **fields: Any) -> None:
+    # Logs estructurados: facilitan rastrear una transaccion por trace_id en API y worker.
     payload = {"service": SERVICE_NAME, "event": event, **fields}
     logger.info(json.dumps(payload, default=str))
 
@@ -58,6 +59,7 @@ def health() -> dict[str, str]:
 
 @app.get("/metrics")
 def metrics() -> Response:
+    # Prometheus puede leer este endpoint para monitorear volumen, errores y latencia.
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
@@ -106,6 +108,7 @@ def get_transaction(transaction_id: UUID) -> dict[str, Any]:
 
 @app.get("/transactions/{transaction_id}/processing-status")
 def get_processing_status(transaction_id: UUID) -> dict[str, Any]:
+    # Endpoint de demo: junta estado principal, outbox, IA y Bancs para explicar el flujo completo.
     with db_connection() as conn:
         transaction = conn.execute(
             "SELECT id, status, trace_id, created_at FROM transactions WHERE id = %s",
@@ -179,6 +182,7 @@ def get_processing_status(transaction_id: UUID) -> dict[str, Any]:
 @app.post("/transactions", response_model=TransactionResponse)
 def create_transaction(request: TransactionRequest) -> TransactionResponse:
     started = time.monotonic()
+    # trace_id permite seguir la misma operacion entre logs de API, worker, IA y Bancs.
     trace_id = uuid4()
     log_event(
         "transaction_received",
@@ -195,6 +199,7 @@ def create_transaction(request: TransactionRequest) -> TransactionResponse:
     try:
         with db_connection() as conn:
             with conn.transaction():
+                # Orden fijo de bloqueo: reduce el riesgo de deadlocks entre transferencias cruzadas.
                 account_ids = sorted([request.from_account_id, request.to_account_id])
                 rows = conn.execute(
                     """
@@ -202,6 +207,7 @@ def create_transaction(request: TransactionRequest) -> TransactionResponse:
                     FROM accounts
                     WHERE id = ANY(%s)
                     ORDER BY id
+                    -- FOR UPDATE bloquea las filas hasta confirmar la transaccion.
                     FOR UPDATE
                     """,
                     (account_ids,),
@@ -255,6 +261,7 @@ def create_transaction(request: TransactionRequest) -> TransactionResponse:
                     "to_account_id": request.to_account_id,
                     "amount": str(request.amount),
                 }
+                # Outbox: la transaccion queda confirmada y el worker procesa IA/Bancs despues.
                 conn.execute(
                     """
                     INSERT INTO outbox_events (transaction_id, event_type, payload)

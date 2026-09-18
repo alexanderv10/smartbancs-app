@@ -14,6 +14,7 @@ TEST_SCHEMA = os.getenv("TEST_DB_SCHEMA", "test_smartbancs")
 
 @pytest.fixture(autouse=True)
 def reset_database():
+    # Candado de seguridad: las pruebas resetean datos, asi que solo corren en esquema aislado.
     pgoptions = os.getenv("PGOPTIONS", "")
     if os.getenv("APP_ENV") != "test" or TEST_SCHEMA not in pgoptions:
         pytest.fail(
@@ -177,6 +178,7 @@ def test_missing_account_returns_not_found(client):
 
 
 def test_concurrent_transactions_do_not_overdraw_same_account():
+    # Dos retiros simultaneos de 80 sobre saldo 100: solo uno debe aprobarse.
     def submit_transfer(to_account_id: int):
         local_client = TestClient(app)
         return local_client.post(
