@@ -1,0 +1,5 @@
+transaction_id,account_id,amount,currency,date
+1,101,"$100.50",usd,17/09/2026
+2,102,,USD,2026-09-17
+3,103," 250 ",usd,09-17-2026
+4,104,"1,200.75",eur,18/09/2026
