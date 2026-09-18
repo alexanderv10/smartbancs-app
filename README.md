@@ -366,6 +366,29 @@ La idea es:
 
 El orden fijo reduce riesgo de deadlocks y `FOR UPDATE` evita que dos transferencias modifiquen el mismo saldo al mismo tiempo.
 
+## Pruebas
+
+Reconstruir la imagen de la API:
+
+```bash
+docker compose build api
+```
+
+Ejecutar pruebas en un esquema aislado de PostgreSQL:
+
+```bash
+docker compose run --rm -e APP_ENV=test -e PGOPTIONS="-c search_path=test_smartbancs,public" api pytest -q
+```
+
+Las pruebas cubren:
+
+- validacion de monto;
+- transferencia aprobada;
+- rechazo por fondos insuficientes;
+- cuenta inexistente;
+- creacion de evento outbox;
+- concurrencia sobre una misma cuenta.
+
 ## ETL
 
 Ver datos crudos:
