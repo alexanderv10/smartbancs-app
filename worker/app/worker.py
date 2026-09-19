@@ -23,7 +23,6 @@ def log_event(event: str, **fields: Any) -> None:
 
 def main() -> None:
     log_event("worker_started")
-    # Loop simple de polling: suficiente para el MVP; en produccion podria reemplazarse por una cola.
     while True:
         try:
             processed = process_next_event()

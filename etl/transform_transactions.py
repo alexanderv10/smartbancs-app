@@ -25,7 +25,7 @@ def normalize_currency(value: str | None) -> str:
 
 
 def normalize_date(value: str) -> str:
-    # Acepta varios formatos de entrada y entrega ISO-8601: YYYY-MM-DD.
+    # Acepta varios formatos de entrada y entrega YYYY-MM-DD.
     candidates = ["%Y-%m-%d", "%d/%m/%Y", "%m-%d-%Y"]
     for fmt in candidates:
         try:

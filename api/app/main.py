@@ -28,7 +28,7 @@ app = FastAPI(title="SmartBancs Transaction API", version="0.1.0")
 
 
 class TransactionRequest(BaseModel):
-    # Pydantic valida la entrada antes de tocar la base: IDs positivos y monto mayor que cero.
+    # valida la entrada antes de tocar la base: IDs positivos y monto mayor que cero.
     from_account_id: int = Field(gt=0)
     to_account_id: int = Field(gt=0)
     amount: Decimal = Field(gt=Decimal("0"))
