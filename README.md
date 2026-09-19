@@ -1,6 +1,6 @@
 # SmartBancs App
 
-MVP para el reto tecnico NextGen Engineers. La solucion procesa transferencias financieras, protege el core legado Bancs mediante procesamiento asincrono, genera recomendaciones con un servicio de IA mock y expone logs y metricas basicas para observabilidad.
+MVP para el reto tecnico NextGen Engineers. La solucion procesa transferencias financieras, genera recomendaciones con un servicio de IA mock mediante procesamiento asincrono y expone logs y metricas basicas para observabilidad.
 
 ## Arquitectura
 
@@ -15,18 +15,14 @@ Tabla outbox_events
         |
         v
 Worker asincrono ---- IA Mock
-        |
-        v
-     Bancs Mock
 ```
 
 ## Componentes
 
 - `api`: servicio principal. Recibe transferencias, valida saldo, actualiza cuentas y crea eventos outbox.
-- `postgres`: base de datos PostgreSQL. Guarda cuentas, transacciones, eventos, recomendaciones y sincronizaciones.
-- `worker`: proceso en segundo plano. Lee eventos outbox, llama IA mock y sincroniza con Bancs mock.
+- `postgres`: base de datos PostgreSQL. Guarda cuentas, transacciones, eventos y recomendaciones.
+- `worker`: proceso en segundo plano. Lee eventos outbox y llama IA mock.
 - `ai-service`: servicio mock que genera recomendaciones financieras.
-- `bancs-mock`: simulacion del core legado Bancs.
 - `etl`: script para limpiar datos transaccionales crudos.
 
 ## Requisitos
@@ -38,6 +34,12 @@ Worker asincrono ---- IA Mock
 ## Ejecutar La Solucion
 
 Desde la carpeta del proyecto:
+
+Si venias de una ejecucion anterior, primero puedes limpiar contenedores viejos:
+
+```bash
+docker compose down --remove-orphans
+```
 
 ```bash
 docker compose up --build
@@ -60,7 +62,6 @@ Servicios disponibles:
 - API principal: http://localhost:8000
 - Swagger API principal: http://localhost:8000/docs
 - IA mock: http://localhost:8001/docs
-- Bancs mock: http://localhost:8002/docs
 - PostgreSQL: localhost:5432
 
 ## Probar Desde Swagger
@@ -167,14 +168,11 @@ Respuesta esperada:
   },
   "recommendation": {
     "message": "..."
-  },
-  "bancs_sync": {
-    "status": "SYNCED"
   }
 }
 ```
 
-Esto demuestra que la transferencia se proceso rapido y que el worker ejecuto tareas secundarias en segundo plano.
+Esto demuestra que la transferencia se proceso rapido y que el worker genero la recomendacion en segundo plano.
 
 ### 5. Crear Transferencia Rechazada
 
@@ -202,8 +200,7 @@ Para una transferencia rechazada, el `processing-status` debe mostrar:
 ```json
 {
   "outbox": null,
-  "recommendation": null,
-  "bancs_sync": null
+  "recommendation": null
 }
 ```
 
@@ -222,7 +219,7 @@ Transferencia aprobada
 Evento en outbox_events
         |
         v
-Worker procesa IA y Bancs
+Worker procesa IA
 ```
 
 ### Worker
@@ -230,14 +227,13 @@ Worker procesa IA y Bancs
 El worker es el encargado de las tareas en segundo plano. En este MVP:
 
 - llama al servicio de IA mock para generar una recomendacion;
-- sincroniza la transferencia aprobada con Bancs mock;
 - marca el evento outbox como `PROCESSED`.
 
-### Bancs Mock
+### Bancs
 
-Bancs mock simula el core bancario legado del reto. En este MVP, PostgreSQL es la base operativa de SmartBancs, mientras Bancs mock representa el sistema externo al que se notifica una transferencia aprobada.
+El core legado Bancs se aborda como estrategia teorica de arquitectura, no como servicio practico en este MVP. La explicacion esta en `docs/architecture.md`.
 
-La API no llama a Bancs durante la respuesta al usuario. Primero procesa la transferencia y responde rapido; luego el worker sincroniza con Bancs mock de forma asincrona para no saturar el sistema legado.
+La idea propuesta es que, en produccion, SmartBancs no consulte Bancs directamente dentro del flujo principal de la transferencia. En su lugar, usaria eventos asincronos para sincronizar sin saturar el sistema legado.
 
 ## Observabilidad
 
@@ -247,6 +243,12 @@ Ver logs de la API:
 
 ```bash
 docker compose logs --tail=30 api
+```
+
+Tambien quedan guardados en archivo:
+
+```text
+logs/api.log
 ```
 
 Eventos importantes:
@@ -261,11 +263,22 @@ Ver logs del worker:
 docker compose logs --tail=30 worker
 ```
 
+Tambien quedan guardados en archivo:
+
+```text
+logs/worker.log
+```
+
+Ver logs del servicio de IA:
+
+```text
+logs/ai-service.log
+```
+
 Eventos importantes:
 
 - `outbox_event_processing`
 - `ai_service_called`
-- `bancs_sync_completed`
 - `outbox_event_processed`
 
 Los logs incluyen `transaction_id` y `trace_id` para rastrear una operacion entre componentes.
@@ -330,15 +343,6 @@ Ver recomendaciones:
 ```sql
 SELECT transaction_id, recommendation, created_at
 FROM recommendations
-ORDER BY created_at DESC
-LIMIT 5;
-```
-
-Ver sincronizaciones con Bancs mock:
-
-```sql
-SELECT transaction_id, status, detail, created_at
-FROM bancs_sync_log
 ORDER BY created_at DESC
 LIMIT 5;
 ```
@@ -436,5 +440,6 @@ Usar `-v` solo si se quiere reiniciar la base desde cero.
 
 - `docs/architecture.md`: diseno de arquitectura y decisiones tecnicas.
 - `docs/incident-response.md`: respuesta al incidente simulado.
+- `docs/observability.md`: guia para leer logs, rastrear transacciones y revisar metricas.
 - `docs/ai-usage.md`: declaracion de uso de inteligencia artificial.
 - `docs/presentation.md`: guion breve para defensa tecnica.

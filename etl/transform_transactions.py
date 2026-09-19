@@ -9,6 +9,7 @@ RAW_FILE = BASE_DIR / "data" / "raw_transactions.csv"
 CLEAN_FILE = BASE_DIR / "data" / "clean_transactions.csv"
 
 
+# Limpia montos con simbolos, comas o valores vacios y los deja con dos decimales.
 def normalize_amount(value: str | None) -> str:
     # Convierte montos sucios como "$100.50" o "1,200.75" a un decimal estandar.
     if value is None or value.strip() == "":
@@ -20,10 +21,12 @@ def normalize_amount(value: str | None) -> str:
         return "0.00"
 
 
+# Normaliza la moneda a mayusculas y usa USD si viene vacia.
 def normalize_currency(value: str | None) -> str:
     return (value or "USD").strip().upper() or "USD"
 
 
+# Convierte diferentes formatos de fecha al formato estandar YYYY-MM-DD.
 def normalize_date(value: str) -> str:
     # Acepta varios formatos de entrada y entrega YYYY-MM-DD.
     candidates = ["%Y-%m-%d", "%d/%m/%Y", "%m-%d-%Y"]
@@ -35,6 +38,7 @@ def normalize_date(value: str) -> str:
     raise ValueError(f"Unsupported date format: {value}")
 
 
+# Lee el CSV crudo, normaliza sus columnas y genera el archivo limpio.
 def transform() -> None:
     # El reto pide demostrar transformacion: entrada cruda -> salida lista para analisis/IA.
     with RAW_FILE.open(newline="", encoding="utf-8") as raw, CLEAN_FILE.open("w", newline="", encoding="utf-8") as clean:

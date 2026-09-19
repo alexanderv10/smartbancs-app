@@ -22,8 +22,11 @@ services:
     environment:
       DATABASE_URL: postgresql://smartbancs:smartbancs@postgres:5432/smartbancs
       SERVICE_NAME: smartbancs-api
+      LOG_FILE: /app/logs/api.log
     ports:
       - "8000:8000"
+    volumes:
+      - ./logs:/app/logs
     depends_on:
       postgres:
         condition: service_healthy
@@ -33,26 +36,22 @@ services:
     environment:
       DATABASE_URL: postgresql://smartbancs:smartbancs@postgres:5432/smartbancs
       AI_SERVICE_URL: http://ai-service:8001
-      BANCS_SERVICE_URL: http://bancs-mock:8002
       SERVICE_NAME: smartbancs-worker
+      LOG_FILE: /app/logs/worker.log
+    volumes:
+      - ./logs:/app/logs
     depends_on:
       postgres:
         condition: service_healthy
       ai-service:
-        condition: service_started
-      bancs-mock:
         condition: service_started
 
   ai-service:
     build: ./ai-service
     environment:
       SERVICE_NAME: smartbancs-ai-service
+      LOG_FILE: /app/logs/ai-service.log
     ports:
       - "8001:8001"
-
-  bancs-mock:
-    build: ./bancs-mock
-    environment:
-      SERVICE_NAME: smartbancs-bancs-mock
-    ports:
-      - "8002:8002"
+    volumes:
+      - ./logs:/app/logs

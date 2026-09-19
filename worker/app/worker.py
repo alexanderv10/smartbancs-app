@@ -10,17 +10,31 @@ import requests
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://smartbancs:smartbancs@localhost:5432/smartbancs")
 AI_SERVICE_URL = os.getenv("AI_SERVICE_URL", "http://localhost:8001")
-BANCS_SERVICE_URL = os.getenv("BANCS_SERVICE_URL", "http://localhost:8002")
 SERVICE_NAME = os.getenv("SERVICE_NAME", "smartbancs-worker")
-
-logging.basicConfig(level=logging.INFO, format="%(message)s")
-logger = logging.getLogger(SERVICE_NAME)
+LOG_FILE = os.getenv("LOG_FILE")
 
 
+# Configura salida de logs en consola y archivo local para revisar el worker facilmente.
+def configure_logging() -> logging.Logger:
+    handlers: list[logging.Handler] = [logging.StreamHandler()]
+    if LOG_FILE:
+        log_dir = os.path.dirname(LOG_FILE)
+        if log_dir:
+            os.makedirs(log_dir, exist_ok=True)
+        handlers.append(logging.FileHandler(LOG_FILE, mode="w", encoding="utf-8"))
+    logging.basicConfig(level=logging.INFO, format="%(message)s", handlers=handlers, force=True)
+    return logging.getLogger(SERVICE_NAME)
+
+
+logger = configure_logging()
+
+
+# Escribe logs JSON del worker con transaction_id y trace_id cuando estan disponibles.
 def log_event(event: str, **fields: Any) -> None:
     logger.info(json.dumps({"service": SERVICE_NAME, "event": event, **fields}, default=str))
 
 
+# Mantiene el worker escuchando eventos pendientes continuamente.
 def main() -> None:
     log_event("worker_started")
     while True:
@@ -33,6 +47,7 @@ def main() -> None:
             time.sleep(3)
 
 
+# Toma un evento outbox pendiente, llama IA y marca el evento como procesado o fallido.
 def process_next_event() -> bool:
     with psycopg.connect(DATABASE_URL) as conn:
         with conn.transaction():
@@ -61,16 +76,11 @@ def process_next_event() -> bool:
     try:
         # Estas tareas son secundarias: no deben retrasar la respuesta de POST /transactions.
         recommendation = call_ai_service(payload)
-        call_bancs_mock(payload)
         with psycopg.connect(DATABASE_URL) as conn:
             with conn.transaction():
                 conn.execute(
                     "INSERT INTO recommendations (transaction_id, recommendation) VALUES (%s, %s)",
                     (transaction_id, recommendation),
-                )
-                conn.execute(
-                    "INSERT INTO bancs_sync_log (transaction_id, status, detail) VALUES (%s, 'SYNCED', 'Synced with Bancs mock')",
-                    (transaction_id,),
                 )
                 conn.execute(
                     """
@@ -93,20 +103,25 @@ def process_next_event() -> bool:
     return True
 
 
+# Llama al servicio IA mock y registra la categoria, score y accion sugerida.
 def call_ai_service(payload: dict[str, Any]) -> str:
     # Servicio separado para demostrar que la IA no bloquea el flujo transaccional principal.
+    started = time.monotonic()
     response = requests.post(f"{AI_SERVICE_URL}/recommendations", json=payload, timeout=3)
     response.raise_for_status()
     data = response.json()
-    log_event("ai_service_called", trace_id=payload.get("trace_id"), transaction_id=payload.get("transaction_id"))
+    duration = time.monotonic() - started
+    log_event(
+        "ai_service_called",
+        trace_id=payload.get("trace_id"),
+        transaction_id=payload.get("transaction_id"),
+        model_version=data.get("model_version"),
+        category=data.get("category"),
+        risk_score=data.get("risk_score"),
+        next_action=data.get("next_action"),
+        duration_ms=int(duration * 1000),
+    )
     return data["recommendation"]
-
-
-def call_bancs_mock(payload: dict[str, Any]) -> None:
-    # Bancs mock simula notificar al core legado sin saturarlo desde la API principal.
-    response = requests.post(f"{BANCS_SERVICE_URL}/bancs/sync", json=payload, timeout=3)
-    response.raise_for_status()
-    log_event("bancs_sync_completed", trace_id=payload.get("trace_id"), transaction_id=payload.get("transaction_id"))
 
 
 if __name__ == "__main__":

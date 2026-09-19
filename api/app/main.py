@@ -16,9 +16,23 @@ from psycopg.types.json import Jsonb
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://smartbancs:smartbancs@localhost:5432/smartbancs")
 SERVICE_NAME = os.getenv("SERVICE_NAME", "smartbancs-api")
+LOG_FILE = os.getenv("LOG_FILE")
 
-logging.basicConfig(level=logging.INFO, format="%(message)s")
+
+# Configura logs en consola y archivo para poder auditar el flujo desde Docker o desde logs/*.log.
+def configure_logging() -> logging.Logger:
+    handlers: list[logging.Handler] = [logging.StreamHandler()]
+    if LOG_FILE:
+        log_dir = os.path.dirname(LOG_FILE)
+        if log_dir:
+            os.makedirs(log_dir, exist_ok=True)
+        handlers.append(logging.FileHandler(LOG_FILE, mode="w", encoding="utf-8"))
+    logging.basicConfig(level=logging.INFO, format="%(message)s", handlers=handlers, force=True)
+    return logging.getLogger(SERVICE_NAME)
+
+
 logger = logging.getLogger(SERVICE_NAME)
+logger = configure_logging()
 
 TRANSACTIONS_TOTAL = Counter("transactions_total", "Total transaction requests", ["status"])
 DATABASE_ERRORS_TOTAL = Counter("database_errors_total", "Total database errors")
@@ -41,30 +55,31 @@ class TransactionResponse(BaseModel):
     message: str
 
 
+# Escribe eventos JSON con campos comunes para rastrear una operacion por trace_id.
 def log_event(event: str, **fields: Any) -> None:
     # Logs estructurados: facilitan rastrear una transaccion por trace_id en API y worker.
     payload = {"service": SERVICE_NAME, "event": event, **fields}
     logger.info(json.dumps(payload, default=str))
 
-
+# Abre una conexion a PostgreSQL y la cierra automaticamente al salir del bloque.
 @contextmanager
 def db_connection():
     # Centraliza la conexion para que todos los endpoints usen la misma configuracion.
     with psycopg.connect(DATABASE_URL) as conn:
         yield conn
 
-
+# Endpoint simple para confirmar que la API esta viva.
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok", "service": SERVICE_NAME}
 
-
+# Expone metricas Prometheus de volumen, errores y duracion de transacciones.
 @app.get("/metrics")
 def metrics() -> Response:
     # Prometheus puede leer este endpoint para monitorear volumen, errores y latencia.
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
-
+# Consulta una cuenta para validar saldos antes y despues de las transferencias.
 @app.get("/accounts/{account_id}")
 def get_account(account_id: int) -> dict[str, Any]:
     # Endpoint de consulta usado en la demo para comprobar saldos antes/despues.
@@ -83,7 +98,7 @@ def get_account(account_id: int) -> dict[str, Any]:
         "status": row[4],
     }
 
-
+# Consulta una transaccion especifica por su identificador de negocio.
 @app.get("/transactions/{transaction_id}")
 def get_transaction(transaction_id: UUID) -> dict[str, Any]:
     # Permite consultar el comprobante tecnico de una transferencia especifica.
@@ -109,10 +124,10 @@ def get_transaction(transaction_id: UUID) -> dict[str, Any]:
         "created_at": row[7],
     }
 
-
+# Resume el estado completo: transaccion principal, outbox y recomendacion de IA.
 @app.get("/transactions/{transaction_id}/processing-status")
 def get_processing_status(transaction_id: UUID) -> dict[str, Any]:
-    # Endpoint de demo: junta estado principal, outbox, IA y Bancs para explicar el flujo completo.
+    # Endpoint de demo: junta estado principal, outbox e IA para explicar el flujo completo.
     with db_connection() as conn:
         transaction = conn.execute(
             "SELECT id, status, trace_id, created_at FROM transactions WHERE id = %s",
@@ -141,16 +156,6 @@ def get_processing_status(transaction_id: UUID) -> dict[str, Any]:
             """,
             (transaction_id,),
         ).fetchone()
-        bancs_sync = conn.execute(
-            """
-            SELECT status, detail, created_at
-            FROM bancs_sync_log
-            WHERE transaction_id = %s
-            ORDER BY created_at DESC
-            LIMIT 1
-            """,
-            (transaction_id,),
-        ).fetchone()
 
     return {
         "transaction": {
@@ -173,20 +178,13 @@ def get_processing_status(transaction_id: UUID) -> dict[str, Any]:
             "message": recommendation[0],
             "created_at": recommendation[1],
         },
-        "bancs_sync": None
-        if bancs_sync is None
-        else {
-            "status": bancs_sync[0],
-            "detail": bancs_sync[1],
-            "created_at": bancs_sync[2],
-        },
     }
 
-
+# Ejecuta el flujo critico: valida, bloquea cuentas, mueve saldo y crea outbox si aprueba.
 @app.post("/transactions", response_model=TransactionResponse)
 def create_transaction(request: TransactionRequest) -> TransactionResponse:
     started = time.monotonic()
-    # trace_id permite seguir la misma operacion entre logs de API, worker, IA y Bancs.
+    # trace_id permite seguir la misma operacion entre logs de API, worker e IA.
     trace_id = uuid4()
     log_event(
         "transaction_received",
@@ -216,6 +214,7 @@ def create_transaction(request: TransactionRequest) -> TransactionResponse:
                     """,
                     (account_ids,),
                 ).fetchall()
+                log_event("accounts_locked", trace_id=trace_id, account_ids=account_ids)
 
                 accounts = {row[0]: {"balance": row[1], "status": row[2]} for row in rows}
                 if request.from_account_id not in accounts or request.to_account_id not in accounts:
@@ -234,7 +233,7 @@ def create_transaction(request: TransactionRequest) -> TransactionResponse:
                     )
 
                 if accounts[request.from_account_id]["balance"] < request.amount:
-                    # Fondos insuficientes no mueve saldo y tampoco dispara IA/Bancs.
+                    # Fondos insuficientes no mueve saldo y tampoco dispara IA.
                     transaction_id = insert_rejected_transaction(conn, request, trace_id, "Insufficient funds")
                     TRANSACTIONS_TOTAL.labels(status="REJECTED").inc()
                     return TransactionResponse(
@@ -252,6 +251,13 @@ def create_transaction(request: TransactionRequest) -> TransactionResponse:
                     "UPDATE accounts SET balance = balance + %s WHERE id = %s",
                     (request.amount, request.to_account_id),
                 )
+                log_event(
+                    "balances_updated",
+                    trace_id=trace_id,
+                    from_account_id=request.from_account_id,
+                    to_account_id=request.to_account_id,
+                    amount=request.amount,
+                )
                 # La transferencia aprobada y el evento outbox se guardan en la misma transaccion DB.
                 transaction_id = conn.execute(
                     """
@@ -268,7 +274,7 @@ def create_transaction(request: TransactionRequest) -> TransactionResponse:
                     "to_account_id": request.to_account_id,
                     "amount": str(request.amount),
                 }
-                # Outbox: la transaccion queda confirmada y el worker procesa IA/Bancs despues.
+                # Outbox: la transaccion queda confirmada y el worker procesa IA despues.
                 conn.execute(
                     """
                     INSERT INTO outbox_events (transaction_id, event_type, payload)
@@ -276,6 +282,7 @@ def create_transaction(request: TransactionRequest) -> TransactionResponse:
                     """,
                     (transaction_id, Jsonb(payload)),
                 )
+                log_event("outbox_event_created", trace_id=trace_id, transaction_id=transaction_id, event_type="TRANSACTION_APPROVED")
 
         duration = time.monotonic() - started
         TRANSACTIONS_TOTAL.labels(status="APPROVED").inc()
@@ -294,6 +301,7 @@ def create_transaction(request: TransactionRequest) -> TransactionResponse:
         raise HTTPException(status_code=503, detail="Database error while processing transaction") from exc
 
 
+# Guarda rechazos de negocio sin crear outbox ni disparar IA.
 def insert_rejected_transaction(conn: psycopg.Connection, request: TransactionRequest, trace_id: UUID, reason: str) -> UUID:
     # Audita rechazos de negocio sin ejecutar tareas secundarias.
     transaction_id = conn.execute(

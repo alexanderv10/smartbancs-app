@@ -39,14 +39,6 @@ CREATE TABLE IF NOT EXISTS recommendations (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS bancs_sync_log (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    transaction_id UUID NOT NULL REFERENCES transactions(id),
-    status VARCHAR(20) NOT NULL,
-    detail TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
 CREATE INDEX IF NOT EXISTS idx_transactions_trace_id ON transactions(trace_id);
 CREATE INDEX IF NOT EXISTS idx_transactions_created_at ON transactions(created_at);
 CREATE INDEX IF NOT EXISTS idx_outbox_status_created_at ON outbox_events(status, created_at);

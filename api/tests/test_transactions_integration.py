@@ -69,21 +69,12 @@ def reset_database():
                     recommendation TEXT NOT NULL,
                     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
                 );
-
-                CREATE TABLE IF NOT EXISTS bancs_sync_log (
-                    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-                    transaction_id UUID NOT NULL REFERENCES transactions(id),
-                    status VARCHAR(20) NOT NULL,
-                    detail TEXT,
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-                );
                 """
             )
             conn.execute(
                 """
                 TRUNCATE TABLE
                     recommendations,
-                    bancs_sync_log,
                     outbox_events,
                     transactions,
                     accounts
@@ -139,7 +130,7 @@ def test_approved_transaction_moves_money_and_creates_outbox_event(client):
 
 
 def test_insufficient_funds_rejects_transaction_without_outbox_event(client):
-    # Caso de negocio: se audita el rechazo, pero no se dispara IA ni Bancs.
+    # Caso de negocio: se audita el rechazo, pero no se dispara la tarea asincrona de IA.
     response = client.post(
         "/transactions",
         json={"from_account_id": 3, "to_account_id": 2, "amount": "500.00"},
