@@ -442,4 +442,3 @@ Usar `-v` solo si se quiere reiniciar la base desde cero.
 - `docs/incident-response.md`: respuesta al incidente simulado.
 - `docs/observability.md`: guia para leer logs, rastrear transacciones y revisar metricas.
 - `docs/ai-usage.md`: declaracion de uso de inteligencia artificial.
-- `docs/presentation.md`: guion breve para defensa tecnica.
