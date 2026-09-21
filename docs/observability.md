@@ -230,10 +230,24 @@ Las metricas se ven en:
 http://localhost:8000/metrics
 ```
 
+La API tambien guarda una copia local en:
+
+```text
+logs/metrics.prom
+```
+
+Ese archivo se crea al arrancar el servicio `api`, aunque todavia no hayas hecho transacciones. Despues se actualiza automaticamente cada vez que una transaccion queda aprobada o rechazada. Tambien se reescribe cuando consultas `/metrics`.
+
 Tambien se pueden consultar por terminal:
 
 ```bash
 curl http://localhost:8000/metrics
+```
+
+En PowerShell puedes abrir el archivo local asi:
+
+```bash
+type logs\metrics.prom
 ```
 
 ## Metricas principales

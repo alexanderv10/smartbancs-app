@@ -23,6 +23,7 @@ services:
       DATABASE_URL: postgresql://smartbancs:smartbancs@postgres:5432/smartbancs
       SERVICE_NAME: smartbancs-api
       LOG_FILE: /app/logs/api.log
+      METRICS_FILE: /app/logs/metrics.prom
     ports:
       - "8000:8000"
     volumes:

@@ -17,6 +17,7 @@ from psycopg.types.json import Jsonb
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://smartbancs:smartbancs@localhost:5432/smartbancs")
 SERVICE_NAME = os.getenv("SERVICE_NAME", "smartbancs-api")
 LOG_FILE = os.getenv("LOG_FILE")
+METRICS_FILE = os.getenv("METRICS_FILE")
 
 
 # Configura logs en consola y archivo para poder auditar el flujo desde Docker o desde logs/*.log.
@@ -39,6 +40,32 @@ DATABASE_ERRORS_TOTAL = Counter("database_errors_total", "Total database errors"
 TRANSACTION_DURATION = Histogram("transaction_duration_seconds", "Transaction processing duration")
 
 app = FastAPI(title="SmartBancs Transaction API", version="0.1.0")
+
+
+# Genera el texto Prometheus y, si existe METRICS_FILE, deja una copia legible en logs/metrics.prom.
+def write_metrics_snapshot() -> bytes:
+    payload = generate_latest()
+    if METRICS_FILE:
+        metrics_dir = os.path.dirname(METRICS_FILE)
+        if metrics_dir:
+            os.makedirs(metrics_dir, exist_ok=True)
+        with open(METRICS_FILE, "wb") as metrics_file:
+            metrics_file.write(payload)
+    return payload
+
+
+# Centraliza el conteo de transacciones para actualizar tambien el archivo local de metricas.
+def mark_transaction_status(status: str) -> None:
+    TRANSACTIONS_TOTAL.labels(status=status).inc()
+    write_metrics_snapshot()
+
+
+# Crea el archivo de metricas desde el arranque, aun antes de procesar la primera transaccion.
+@app.on_event("startup")
+def startup() -> None:
+    TRANSACTIONS_TOTAL.labels(status="APPROVED")
+    TRANSACTIONS_TOTAL.labels(status="REJECTED")
+    write_metrics_snapshot()
 
 
 class TransactionRequest(BaseModel):
@@ -77,7 +104,8 @@ def health() -> dict[str, str]:
 @app.get("/metrics")
 def metrics() -> Response:
     # Prometheus puede leer este endpoint para monitorear volumen, errores y latencia.
-    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
+    payload = write_metrics_snapshot()
+    return Response(payload, media_type=CONTENT_TYPE_LATEST)
 
 # Consulta una cuenta para validar saldos antes y despues de las transferencias.
 @app.get("/accounts/{account_id}")
@@ -195,7 +223,7 @@ def create_transaction(request: TransactionRequest) -> TransactionResponse:
     )
 
     if request.from_account_id == request.to_account_id:
-        TRANSACTIONS_TOTAL.labels(status="REJECTED").inc()
+        mark_transaction_status("REJECTED")
         raise HTTPException(status_code=400, detail="Origin and destination accounts must be different")
 
     try:
@@ -218,13 +246,13 @@ def create_transaction(request: TransactionRequest) -> TransactionResponse:
 
                 accounts = {row[0]: {"balance": row[1], "status": row[2]} for row in rows}
                 if request.from_account_id not in accounts or request.to_account_id not in accounts:
-                    TRANSACTIONS_TOTAL.labels(status="REJECTED").inc()
+                    mark_transaction_status("REJECTED")
                     raise HTTPException(status_code=404, detail="One or both accounts do not exist")
 
                 if accounts[request.from_account_id]["status"] != "ACTIVE" or accounts[request.to_account_id]["status"] != "ACTIVE":
                     # Rechazos de negocio quedan auditados en transactions, pero no generan outbox.
                     transaction_id = insert_rejected_transaction(conn, request, trace_id, "Inactive account")
-                    TRANSACTIONS_TOTAL.labels(status="REJECTED").inc()
+                    mark_transaction_status("REJECTED")
                     return TransactionResponse(
                         transaction_id=transaction_id,
                         trace_id=trace_id,
@@ -235,7 +263,7 @@ def create_transaction(request: TransactionRequest) -> TransactionResponse:
                 if accounts[request.from_account_id]["balance"] < request.amount:
                     # Fondos insuficientes no mueve saldo y tampoco dispara IA.
                     transaction_id = insert_rejected_transaction(conn, request, trace_id, "Insufficient funds")
-                    TRANSACTIONS_TOTAL.labels(status="REJECTED").inc()
+                    mark_transaction_status("REJECTED")
                     return TransactionResponse(
                         transaction_id=transaction_id,
                         trace_id=trace_id,
@@ -287,6 +315,7 @@ def create_transaction(request: TransactionRequest) -> TransactionResponse:
         duration = time.monotonic() - started
         TRANSACTIONS_TOTAL.labels(status="APPROVED").inc()
         TRANSACTION_DURATION.observe(duration)
+        write_metrics_snapshot()
         log_event("transaction_approved", trace_id=trace_id, transaction_id=transaction_id, duration_ms=int(duration * 1000))
         return TransactionResponse(
             transaction_id=transaction_id,
@@ -297,6 +326,7 @@ def create_transaction(request: TransactionRequest) -> TransactionResponse:
     except psycopg.Error as exc:
         # Si PostgreSQL falla, lo registramos como metrica y log para diagnostico operativo.
         DATABASE_ERRORS_TOTAL.inc()
+        write_metrics_snapshot()
         log_event("database_error", trace_id=trace_id, error=str(exc))
         raise HTTPException(status_code=503, detail="Database error while processing transaction") from exc
 

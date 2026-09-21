@@ -57,6 +57,12 @@ Ver servicios activos:
 docker compose ps
 ```
 
+Abrir menu interactivo por terminal:
+
+```bash
+python smartbancs_menu.py
+```
+
 Servicios disponibles:
 
 - API principal: http://localhost:8000
@@ -290,6 +296,14 @@ Abrir:
 ```text
 http://localhost:8000/metrics
 ```
+
+La API tambien mantiene una copia local en:
+
+```text
+logs/metrics.prom
+```
+
+Ese archivo se crea al arrancar el servicio `api` y se actualiza despues de cada transaccion aprobada o rechazada. Tambien se reescribe cuando se consulta `/metrics`.
 
 Metricas relevantes:
 
