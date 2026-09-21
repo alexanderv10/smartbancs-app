@@ -9,4 +9,6 @@ venv/
 *.log
 !logs/*.log
 !logs/*.prom
+demo-video.mp4
+*.mp4
 etl/data/clean_transactions.csv
