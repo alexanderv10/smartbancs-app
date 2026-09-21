@@ -1,4 +1,4 @@
-# Observabilidad SmartBancs
+# Instrucciones de Observabilidad 
 
 Este documento explica como revisar si el sistema funciona correctamente, donde ver los logs y donde consultar las metricas.
 
