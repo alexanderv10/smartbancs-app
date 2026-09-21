@@ -1,8 +1,0 @@
-{"service": "smartbancs-api", "event": "transaction_received", "trace_id": "42ab61fd-3ebc-47d6-b7df-184dd1d2ca31", "from_account_id": 1, "to_account_id": 2, "amount": "100"}
-{"service": "smartbancs-api", "event": "accounts_locked", "trace_id": "42ab61fd-3ebc-47d6-b7df-184dd1d2ca31", "account_ids": [1, 2]}
-{"service": "smartbancs-api", "event": "balances_updated", "trace_id": "42ab61fd-3ebc-47d6-b7df-184dd1d2ca31", "from_account_id": 1, "to_account_id": 2, "amount": "100"}
-{"service": "smartbancs-api", "event": "outbox_event_created", "trace_id": "42ab61fd-3ebc-47d6-b7df-184dd1d2ca31", "transaction_id": "0e467ae0-1866-4728-b6bb-46715ba8c9a9", "event_type": "TRANSACTION_APPROVED"}
-{"service": "smartbancs-api", "event": "transaction_approved", "trace_id": "42ab61fd-3ebc-47d6-b7df-184dd1d2ca31", "transaction_id": "0e467ae0-1866-4728-b6bb-46715ba8c9a9", "duration_ms": 21}
-{"service": "smartbancs-api", "event": "transaction_received", "trace_id": "0f0d0163-cbcd-4a87-913b-f5f90adff652", "from_account_id": 3, "to_account_id": 2, "amount": "500"}
-{"service": "smartbancs-api", "event": "accounts_locked", "trace_id": "0f0d0163-cbcd-4a87-913b-f5f90adff652", "account_ids": [2, 3]}
-{"service": "smartbancs-api", "event": "transaction_rejected", "trace_id": "0f0d0163-cbcd-4a87-913b-f5f90adff652", "transaction_id": "045319f5-af3d-448f-b634-0a80f87b5676", "reason": "Insufficient funds"}

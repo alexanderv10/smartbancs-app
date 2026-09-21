@@ -408,3 +408,23 @@ El informe incluiria:
 - acciones correctivas;
 - responsable;
 - fecha compromiso.
+
+### Acciones preventivas de infraestructura
+
+- alertas por latencia;
+- alertas por errores de base de datos;
+- monitoreo de locks/deadlocks;
+- revisar pool de conexiones;
+- escalar API;
+- escalar workers;
+- pruebas de carga.
+
+### Acciones preventivas de codigo
+
+- mantener bloqueos en orden consistente;
+- optimizar consultas;
+- agregar índices;
+- reintentos con backoff;
+- idempotencia;
+- pruebas de concurrencia;
+- monitoreo de eventos PENDING o FAILED.
