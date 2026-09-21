@@ -1,0 +1,5 @@
+transaction_id,account_id,amount,currency,date
+1,101,100.50,USD,2026-09-17
+2,102,0.00,USD,2026-09-17
+3,103,250.00,USD,2026-09-17
+4,104,1200.75,EUR,2026-09-18
